@@ -1,12 +1,11 @@
 //-----------------------------------------------------------------------
 //          ** BETA-BINOMIAL OCCUPANCY MODEL SS BS GROUP1 **
-// SINGLE SPECIES - RANDOM EFFECTS MODEL - NO PROJ RE CORR - WITH CAM RE
+// SINGLE SPECIES - RANDOM EFFECTS MODEL -  WITH CAM RE
 //-----------------------------------------------------------------------
 // DESCRIPTION: Single-species occupancy model with project 
 // (i.e., group) level coefficients for the effects of human 
 // presence and human footprint on Occupancy Probability and detection. 
 // Project-level coefficients are RANDOM (i.e., unmodeled) 
-// No correlation fit between project random effects.
 // Camera-level random intercepts INCLUDED and are nested in project
 // Posterior predictive distribution (y_new) and stats for bayesian 
 // p-values are calculated outside of the model so excluded here.
