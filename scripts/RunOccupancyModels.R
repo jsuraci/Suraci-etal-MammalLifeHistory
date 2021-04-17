@@ -1,29 +1,24 @@
 #####################################################################################
-#
-#                                  NA Cam Trap
-#                           Occupancy Modeling w/ Stan
-#                       Single Species - By Season Model
-#                                  2020-10-12
+# RUN SINGLE SPECIES OCCUPANCY MODELS
+# from Suraci et al. 2021. Global Change Biology
 #
 # This script prepares the data for and fits single species occupancy models
 # in which observations at each camera site are separated into seasonal sampling
-# periods of at most 6 months. This script contains the STANDARDIZED model version 
-# in which human presence and footprint variables are centered and scaled OUTSIDE 
-# of the species level dataset prep such that values are standardized across all
-# species. Project-level random intercepts and slopes from human disturbance, and
-# human disturbance polynomial terms are fit for both occupancy and detection
-# probability.  
-# UPDATE:  Only change from previous version is the inclusion of both latitude
-# and longitude in the occupancy submodel to help with spatial autocorrelation
+# periods of at most 6 months. Human presence and footprint variables are centered 
+# and scaled prior to species level dataset preparation such that values are standardized 
+# across all species. Project-level random intercepts and slopes from human disturbance, 
+# and human disturbance polynomial terms are fit for both occupancy and detection probability.  
 ####################################################################################
 library(tidyverse)
 library(rstan) 
 library(loo)
 
-# Load occupancy model data
-load(file = "Data_Sets/NACam_OccModDatasets_AllSp_BP_500m_2020721.rda", verbose = T)
+# Get occupancy model data
+covs <- read.csv(file = "Suraci_etal_2021_GCB_CovariateData.csv", header = T) # Model covariates
+spProj <- read.csv(file = "Suraci_etal_2021_GCB_SpeciesByProject.csv", header = T) # project x species matrix
+detections <- read.csv(file = "Suraci_etal_2021_GCB_DetectionData.csv", header = T) # Detections
 # Remove camera sites with missing HFP values
-dCovs<-dCovs[which(is.na(dCovs$HFP_1k)==F),]
+covs<-covs[which(is.na(covs$HFP_1k)==F),]
 
 # Read in model settings csv
 mset<-read.csv("SpeciesModSettings.csv", header = T, colClasses = c('character', 'numeric','numeric',rep("character",3),rep("numeric",3),'character'))
@@ -42,43 +37,33 @@ scale2<-function(x, Log = NA, SD = 1){
 # ** SCALE DISTURBANCE COVARIATES **
 # Scale human presence and human footprint OUTSIDE of the individual species models 
 # so that the range of values is comparable across species
-dCovs$human_scale<-scale2(dCovs$dr_human, Log = 0.001, SD = 2)
-dCovs$FP_scale<-scale2(dCovs$HFP_1k, Log = 1, SD = 2)
+covs$human_scale<-scale2(covs$dr_human, Log = 0.001, SD = 2)
+covs$FP_scale<-scale2(covs$HFP_1k, Log = 1, SD = 2)
 
 # Define function packaging occupancy model data for use in Stan
 # randSub argument allows for taking a random subset (of specified size) 
 # of data for model testing. Ignored if not specified. 
 # Returns a named list of length 3: 'modDat' = data for Stan model,
 # 'camDat' = camera-level covariates, 'projDat' = project-level covariates.
-
-# Random effects model formulation (no group-level models).  Lots more observation-level covariates
-occData<-function(species, order, survey = c("day",'week'), randSub = NA){
+occData<-function(species, order, randSub = NA){
   
   #______________________
   # Define data set
   # Determine which rows to use based on projects in which species was detected
-  pkeep<-sdatP$Project[which(sdatP[,species]==1)] # Projects where species was detected on at least one camera
-  rkeep<-which(dCovs$Project %in% pkeep & is.na(dCovs$Baited)==F) # Rows to keep for all relevant data sets
+  pkeep<-spProj$Project[which(spProj[,species]==1)] # Projects where species was detected on at least one camera
+  rkeep<-which(covs$Project %in% pkeep & is.na(covs$Baited)==F) # Rows to keep for all relevant data sets
   
   # Take random subset, if specified
   if(is.na(randSub)==F) rkeep <- sample(rkeep, size = randSub, replace = FALSE)
   
   # Get covariate data set truncated to applicable rows
-  covData<-dCovs[rkeep,]; covData<-droplevels(covData) 
+  covData<-covs[rkeep,]; covData<-droplevels(covData) 
   
   #________________
   # Organize y data (observations)
-  # Determine whether to use daily or weekly surveys
-  if(survey == "day"){ # Using daily surveys
-    obData<-as.data.frame(dDay[rkeep,]) # get observations data set truncated to applicable rows
-    survey.dat<-obData$Days # Get number of trials (days operational)
-  }
-  if(survey == "week"){ # Using weekly surveys
-    obData<-as.data.frame(dWeek[rkeep,]) # get observations data set truncated to applicable rows
-    survey.dat<-obData$Weeks # Get number of trials (weeks operational)
-  }
-  #Extract observations for species (defined in function call)
-  y.dat<-obData[,which(names(obData)==species)]
+  obData<-as.data.frame(detections[rkeep,]) # get observations data set truncated to applicable rows
+  survey.dat<-obData$Weeks # Get number of trials (weeks operational)
+  y.dat<-obData[,which(names(obData)==species)] #Extract observations for species (defined in function call)
   
   #________________
   # Organize covariates
@@ -99,8 +84,8 @@ occData<-function(species, order, survey = c("day",'week'), randSub = NA){
   isSummer<-ifelse(covData$Season=='Summer',1,0) %>% 
     scale(., center = T, scale = F)
   # "No" and "Partial" hunting combined
-  if(order == 'Carnivora' | order == "Didelphimorphia") hunt <- covData$Carn_hunted else hunt <- covData$Ung_hunted
-  Hunt.dat<-ifelse(hunt == 2, 1, 0) %>% 
+  if(order == 'Carnivora') hunt <- covData$Carn_hunted else hunt <- covData$Ung_hunted
+  Hunt.dat<- hunt %>% 
     scale(., center = T, scale = F)
   
   # Data transformations
@@ -175,7 +160,7 @@ chains = 3
 cores = chains
 
 # Model and parameters to use
-mod.file = "BetaBinom_RE_intC_SN.stan"
+mod.file = "OccMod_BetaBinom.stan"
 pars = c('A','B','A_mu','A_sigma','B_mu','B_sigma','a0','b0','a','b','log_lik','mu','rho','psi')
 #-----------------------------------------------------------------------
 # Fit Beta Binomial Random Effects model for all species
@@ -183,7 +168,7 @@ pars = c('A','B','A_mu','A_sigma','B_mu','B_sigma','a0','b0','a','b','log_lik','
 # Loop through species and fit models
 for(i in 1:nrow(mset)){
   # Define species data set to use
-  sp.dat<-occData(species = mset$SpeciesID[i], order = mset$Order[i], survey = 'week')
+  sp.dat<-occData(species = mset$SpeciesID[i], order = mset$Order[i])
   modData <- sp.dat$modDat
   
   # Model settings
@@ -221,7 +206,7 @@ for(i in 1:nrow(mset)){
   fileName = paste(mset$SpeciesID[i], "BB_REsq_", date, ".rda", sep = "")
   assign(modName, mod)
   assign(datName, sp.dat)
-  save(list = c(modName, datName), file = fileName)
+  save(list = c(modName, datName), file = paste('ouptut/',fileName))
 }
 
 
@@ -232,7 +217,7 @@ for(i in 1:nrow(mset)){
 
 modExtract<-function(species, modType, dataPath, plotPath){
   
-  # Definte model to use
+  # Define model to use
   mod1 <- get(paste(species,modType, sep = ""))
   # Define accompanying data set
   dat<-get(paste(species,".dat", sep = ""))
@@ -249,15 +234,15 @@ modExtract<-function(species, modType, dataPath, plotPath){
   assign(x = paste(species,"Mod",sep = ""), dat) # rename datasets list with species name
   # Save
   date<-str_sub(as.character(Sys.time()), start = 1, end = 10)
-  dFile = paste(dataPath, "/", species, modType, "_", date, ".rda", sep = "")
+  dFile = paste("output/", species, modType, "_", date, ".rda", sep = "")
   save(list = c(paste(species,"Mod",sep = "")), file = dFile)
 
 }
 
 # Run for all models
-path = "models/" # Set path to retrieve saved model objects
+path = "output/" # Set path to retrieve saved model objects
 modFiles<-list.files(path = path)
-modFiles<-modFiles[grep('.rda', modFiles)]
+modFiles<-modFiles[grep('BB_', modFiles)]
 
 for(i in 1:length(modFiles)){
   # Load mod file
@@ -268,7 +253,7 @@ for(i in 1:length(modFiles)){
   mtype<-strsplit(fn, split = spname)[[1]][2]
   
   # Run modExtract
-  modExtract(species = spname, modType = mtype, dataPath = "Model_output/BetaBinom_AllSp_Final/")
+  modExtract(species = spname, modType = mtype, dataPath = "output/BetaBinom_AllSp_Final/")
   
   # Delete model
   rm(list = c(paste(spname,mtype, sep = ""), paste(spname,".dat", sep = "")))

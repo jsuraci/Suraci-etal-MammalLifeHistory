@@ -1,7 +1,8 @@
 //-----------------------------------------------------------------------
 //                      ** TRAIT RESPONSE MODEL **
 //-----------------------------------------------------------------------
-
+// Linear mixed effects model with "observation error" and 
+// nested random effects
 
 data {
   

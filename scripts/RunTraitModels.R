@@ -1,15 +1,12 @@
 #####################################################################################
+# RUN LMM TRAIT RESPONSE MODELS
+# from Suraci et al. 2021. Global Change Biology
 #
-#                                  NA Cam Trap
-#                           Trait Response Model
-#                                  2020-07-17
-#
-# Project level responses by each species to human presence (A1, B1) and human
-# footprint (A2, B2) are modeled as functions of species traits.  
+# Project level responses by each species to human presence (occupancy: A1, detection: B1) 
+# and human footprint (occupancy: A2, detection: B2) are modeled as functions of species traits.  
 # Observation error (estimated as sd of all project level response
 # coefficient estimates for a given species) is incorporated for each observed
 # response estimate.
-# NOTE: Model selection is inconclusive. USING ONLY MODEL PC2  FOR ALL RESPONSES
 ####################################################################################
 library(tidyverse)
 library(rstan)
@@ -19,10 +16,10 @@ library(loo)
 library(bayesplot)
 library(vegan)
 
-# Load data
-load(file = "Data_Sets/NACam_OccModDatasets_AllSp_BP_500m_2020721.rda", verbose = T)
+# Get occupancy model covariate datasets
+covs <- read.csv(file = "Suraci_etal_2021_GCB_CovariateData.csv", header = T) # Model covariates
 # Get mean lat and lon for each project
-projLL<- dCovs %>% 
+projLL<- covs %>% 
   dplyr::select(Project, CamID, Lat, Long) %>% 
   mutate(Project = as.character(Project)) %>% 
   unique() %>% 
@@ -31,14 +28,13 @@ projLL<- dCovs %>%
   arrange(Project) %>% as.data.frame()
 
 
-
-# Read in all model output files 
+# Read in all occupancy model output files 
 # ***** Created in RunOccupancyModels.R Script *****
-path = "Model_output/BetaBinom_AllSp_Final/"
+path = "output/BetaBinom_AllSp_Final/"
 modFiles<-list.files(path = path, full.names = T)
 for(i in 1:length(modFiles)) load(modFiles[i], verbose = T)
 
-# Define species to use (Artiodactyla and Carnivora)
+# Define species to use
 spn<-list.files(path = path)
 spnames<-str_split(spn, pattern = "BB_", simplify = T)[,1]
 nsp<-length(spnames)
@@ -128,7 +124,7 @@ traitsSelect$PC3<-spPCA$x[,3]
 
 #________________________________________________________________________
 #________________________________________________________________________
-# PREP DATA 
+# PREP DATA FOR LMM 
 #####
 
 # Extract means and 95% CIs for each coefficient
@@ -199,7 +195,7 @@ for(i in 1:length(ordFam)){
 
 #________________________________________________________________________
 #________________________________________________________________________
-# RUN CANDIDATE MODELS
+# RUN MODELS
 
 # Prep model covariates
 #####
@@ -304,7 +300,7 @@ delta = 0.99
 tdepth = 15
 
 # Model to use
-modFile = "TraitResponse_FINAL_FamSpRE.stan"
+modFile = "TraitMod_LMM.stan"
 
 # Parameters to save (Depends on model choice above)
 pars = c('Bf_mu','Bf_sigma','Bf','Bs_sigma','Bs', 'b','sigma_p', 'z', 'y_new', 'cvar_new', 'log_lik')
@@ -360,4 +356,4 @@ for(i in 1:length(ynames)){
 
 
 # Save everything
-save(list = c('A1_PCM','A2_PCM','B1_PCM','B2_PCM'), file = "TraitResponseModels.rda")
+save(list = c('A1_PCM','A2_PCM','B1_PCM','B2_PCM'), file = "output/TraitResponseModels.rda")
